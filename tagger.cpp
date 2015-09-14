@@ -8,8 +8,10 @@
 #include <random>
 #include <algorithm>
 
+static const int kVocabSize = 100000;
 static const int kNbKinds = 30;
 static const double kLearningRate = 0.1;
+static const unsigned int kNotFound = -1;
 
 enum Kind {
     ADJ,
@@ -75,7 +77,7 @@ Kind TextToPOS(const std::string& str) {
     if (str =="VPP") return VPP;
     if (str =="VPR") return VPR;
     if (str =="VS") return VS;
-    return (Kind)-1;
+    return (Kind)kNotFound;
 };
 
 std::string POSToText(Kind pos) {
@@ -193,11 +195,11 @@ struct WordFeatures {
     unsigned int idx;
     Caps caps;
 
-    WordFeatures() : suffix((Suffix)-1), idx(-1), caps(NO_CAPS) {}
-    WordFeatures(const std::string& str) : as_string(str), idx(-1), caps(NO_CAPS) {}
+    WordFeatures() : suffix((Suffix)kNotFound), idx(kNotFound), caps(NO_CAPS) {}
+    WordFeatures(const std::string& str) : as_string(str), idx(kNotFound), caps(NO_CAPS) {}
 };
 
-std::map<unsigned int, WordFeatures> word_features;
+std::vector<WordFeatures> word_features(kVocabSize, WordFeatures());
 
 inline bool ends_with(std::string const & value, std::string const & ending)
 {
@@ -208,13 +210,19 @@ inline bool ends_with(std::string const & value, std::string const & ending)
 
 /* WORD WEIGHT */
 
-std::map<unsigned int, double> word_weight[kNbKinds];
+std::vector<double> word_weight[kNbKinds];
 
 double WordF(Kind target, const WordFeatures& w) {
+    if (w.idx == kNotFound)
+        return 0;
+
     return word_weight[target][w.idx];
 }
 
 void WordF_Backprop(const TaggedWord& w, const double* probabilities) {
+    if (w.first == kNotFound)
+        return;
+
     for (int k = 0; k < kNbKinds; ++k) {
         double target = (w.second == k) ? 1 : 0;
         word_weight[k][w.first] += kLearningRate * (target - probabilities[k]);
@@ -226,16 +234,16 @@ void WordF_Backprop(const TaggedWord& w, const double* probabilities) {
 double suffixes[kNbKinds][kNbSuffixes];
 
 double SuffixF(Kind target, const WordFeatures& w) {
-    int word_suffix = w.suffix;
-    if (word_suffix != -1)
+    unsigned int word_suffix = w.suffix;
+    if (word_suffix != kNotFound)
         return suffixes[target][word_suffix];
     else
         return 0;
 }
 
 void SuffixF_Backprop(const TaggedWord& w, const double* probabilities) {
-    int word_suffix = word_features[w.first].suffix;
-    if (word_suffix == -1)
+    unsigned int word_suffix = word_features[w.first].suffix;
+    if (word_suffix == kNotFound)
         return;
 
     for (int k = 0; k < kNbKinds; ++k) {
@@ -303,7 +311,7 @@ std::map<std::string, int> dict;
 WordFeatures BuildFeatures(const std::string& w) {
     WordFeatures features(w);
 
-    features.suffix = (Suffix)-1;
+    features.suffix = (Suffix)kNotFound;
     for (int i = 0; i < kNbSuffixes; ++i) {
         if (ends_with(w, suffixes_str[i])) {
             features.suffix = (Suffix) i;
@@ -319,7 +327,7 @@ WordFeatures BuildFeatures(const std::string& w) {
     std::transform(features.as_string.begin(), features.as_string.end(), features.as_string.begin(),
             ::tolower);
     auto res = dict.find(features.as_string);
-    features.idx = res == dict.end() ? -1 : res->second;
+    features.idx = res == dict.end() ? kNotFound : res->second;
     return features;
 }
 
@@ -336,6 +344,11 @@ void Init() {
         for (int j = 0; j < 3; ++j) {
             capitalization[i][j] = d(gen);
         }
+
+        word_weight[i].resize(kVocabSize);
+        for (int j = 0; j < kVocabSize; ++j) {
+            word_weight[i][j] = d(gen);
+        }
     }
 }
 
@@ -347,10 +360,6 @@ Document BuildDocument(char* filename) {
     std::string pos;
     unsigned int max_word_id = 0;
 
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::normal_distribution<double> d(0, 1);
-
     while (input) {
         unsigned word_id = max_word_id;
         input >> w;
@@ -360,9 +369,6 @@ Document BuildDocument(char* filename) {
         if (!res.second) {
             word_id = res.first->second;
         } else {
-            for (int k = 0; k < kNbKinds; ++k) {
-                word_weight[k][word_id] = d(gen);
-            }
             word_features[word_id] = BuildFeatures(w);
             ++max_word_id;
         }
@@ -411,7 +417,7 @@ int main(int argc, char** argv) {
         double probas[kNbKinds];
         WordFeatures wf = BuildFeatures(w);
 
-        if (wf.idx != (unsigned int) -1)
+        if (wf.idx != kNotFound)
             std::cout << "  idx: " << wf.idx << "\n";
 
         Kind k = ComputeClass(wf, probas);
