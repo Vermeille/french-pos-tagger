@@ -267,18 +267,42 @@ void CapsF_Backprop(const TaggedWord& w, const WordFeatures& wf, const double* p
     }
 }
 
-double RunAllFeatures(Kind k, const WordFeatures& w) {
+/* TRANSITION */
+
+double transitions[kNbKinds][kNbKinds];
+
+double TransitionF(Kind target, const TaggedWord& prev) {
+    if ((unsigned int)prev.second == kNotFound) {
+        return 0;
+    }
+
+    return transitions[target][prev.second];
+}
+
+void TransitionF_Backprop(const TaggedWord& w, const TaggedWord& prev, const double* probabilities) {
+    if ((unsigned int)prev.second == kNotFound) {
+        return;
+    }
+
+    for (int k = 0; k < kNbKinds; ++k) {
+        double target = k == w.second ? 1 : 0;
+        transitions[k][prev.second] += kLearningRate * (target - probabilities[k]);
+    }
+}
+
+double RunAllFeatures(Kind k, const WordFeatures& w, const TaggedWord& prev) {
     double sum = 0;
     sum += WordF(k, w);
     sum += SuffixF(k, w);
     sum += CapsF(k, w);
+    sum += TransitionF(k, prev);
     return sum;
 }
 
-Kind ComputeClass(const WordFeatures& w, double* probabilities) {
+Kind ComputeClass(const WordFeatures& w, const TaggedWord& prev, double* probabilities) {
     double total = 0;
     for (int k = 0; k < kNbKinds; ++k) {
-        probabilities[k] = std::exp(RunAllFeatures((Kind) k, w));
+        probabilities[k] = std::exp(RunAllFeatures((Kind) k, w, prev));
         total += probabilities[k];
     }
 
@@ -292,10 +316,12 @@ Kind ComputeClass(const WordFeatures& w, double* probabilities) {
     return (Kind)max;
 }
 
-void Backprop(const TaggedWord& tw, const WordFeatures& wf, const double* probabilities) {
+void Backprop(const TaggedWord& tw, const WordFeatures& wf, const TaggedWord& prev,
+        const double* probabilities) {
     WordF_Backprop(tw, probabilities);
     SuffixF_Backprop(tw, probabilities);
     CapsF_Backprop(tw, wf, probabilities);
+    TransitionF_Backprop(tw, prev, probabilities);
 }
 
 double ComputeNLL(double* probas) {
@@ -392,15 +418,19 @@ int main(int argc, char** argv) {
         double probas[kNbKinds];
         int nb_correct = 0;
         int nb_tokens = 0;
+        TaggedWord prev = std::make_pair(kNotFound, PONCT);
         for (size_t i = 0; i < doc.size(); ++i) {
             const WordFeatures& wf = word_features[doc[i].first];
-            Kind predicted = ComputeClass(wf, probas);
+            Kind predicted = ComputeClass(wf, prev, probas);
             nb_correct += predicted == doc[i].second ? 1 : 0;
             ++nb_tokens;
 
             nll += ComputeNLL(probas);
 
-            Backprop(doc[i], wf, probas);
+            Backprop(doc[i], wf, prev, probas);
+
+            prev = doc[i];
+
             if (i % 10000 == 0) {
                 std::cout << nb_correct << " / " << nb_tokens << " (" << ((double) nb_correct *100 / nb_tokens) << "%)" << std::endl;
             }
@@ -408,6 +438,7 @@ int main(int argc, char** argv) {
         std::cout << nll << "\n" << nb_correct << " / " << nb_tokens << "\n=======\n";
     }
 
+    TaggedWord prev = std::make_pair(kNotFound, PONCT);
     while (std::cin) {
         std::string w;
         std::cin >> w;
@@ -420,7 +451,8 @@ int main(int argc, char** argv) {
         if (wf.idx != kNotFound)
             std::cout << "  idx: " << wf.idx << "\n";
 
-        Kind k = ComputeClass(wf, probas);
+        Kind k = ComputeClass(wf, prev, probas);
+        prev = std::make_pair(wf.idx, k);
         std::cout << "  POS: " << POSToText(k) << " (confidence: " << probas[k] *100 << " %)\n";
     }
 
