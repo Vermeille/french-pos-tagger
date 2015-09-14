@@ -118,7 +118,7 @@ typedef std::pair<unsigned int, Kind> TaggedWord;
 typedef std::vector<TaggedWord> Document;
 
 
-static const int kNbSuffixes = 26;
+static const int kNbSuffixes = 35;
 enum Suffix {
     /* ADV */
     MENT,
@@ -139,16 +139,25 @@ enum Suffix {
     ER,
     IR,
     INDRE,
+    OIRE,
     EZ,
+    ES,
     S,
+    E,
     T,
     /* ADJ */
     IQUE,
-    E,
-    ES,
+    E_ACCENTED,
+    E_ACCENTED_S,
     EES,
     AUX,
     AL,
+    ALE,
+    ELLE,
+    ELLES,
+    ALES,
+    ETTE,
+    ETTES,
 };
 
 const char* suffixes_str[] = {
@@ -171,8 +180,11 @@ const char* suffixes_str[] = {
     "er",
     "ir",
     "indre",
+    "oire",
     "ez",
+    "es",
     "s",
+    "e",
     "t",
     /* ADJ */
     "ique",
@@ -181,6 +193,33 @@ const char* suffixes_str[] = {
     "ées",
     "aux",
     "al",
+    "ale",
+    "elle",
+    "elles",
+    "ales",
+    "ette",
+    "ettes",
+};
+
+static const int kNbPrefixes = 7;
+enum Prefix {
+    RE,
+    RE_ACCENTED,
+    MIS,
+    MAL,
+    AN,
+    A,
+    DES,
+};
+
+const char* prefixes_str[] = {
+    "re",
+    "ré",
+    "mis",
+    "mal",
+    "an",
+    "a",
+    "dés",
 };
 
 enum Caps {
@@ -192,6 +231,7 @@ enum Caps {
 struct WordFeatures {
     std::string as_string;
     Suffix suffix;
+    Prefix prefix;
     unsigned int idx;
     Caps caps;
 
@@ -208,6 +248,12 @@ inline bool ends_with(std::string const & value, std::string const & ending)
     return std::equal(ending.rbegin(), ending.rend(), value.rbegin());
 }
 
+inline bool starts_with(std::string const & value, std::string const & ending)
+{
+    if (ending.size() > value.size())
+        return false;
+    return std::equal(ending.begin(), ending.end(), value.begin());
+}
 /* WORD WEIGHT */
 
 std::vector<double> word_weight[kNbKinds];
@@ -249,6 +295,29 @@ void SuffixF_Backprop(const TaggedWord& w, const double* probabilities) {
     for (int k = 0; k < kNbKinds; ++k) {
         double target = k == w.second ? 1 : 0;
         suffixes[k][word_suffix] += kLearningRate * (target - probabilities[k]);
+    }
+}
+
+/* PREFIXES */
+
+double prefixes[kNbKinds][kNbPrefixes];
+
+double PrefixF(Kind target, const WordFeatures& w) {
+    unsigned int word_prefix = w.prefix;
+    if (word_prefix != kNotFound)
+        return prefixes[target][word_prefix];
+    else
+        return 0;
+}
+
+void PrefixF_Backprop(const TaggedWord& w, const double* probabilities) {
+    unsigned int word_prefix = word_features[w.first].prefix;
+    if (word_prefix == kNotFound)
+        return;
+
+    for (int k = 0; k < kNbKinds; ++k) {
+        double target = k == w.second ? 1 : 0;
+        prefixes[k][word_prefix] += kLearningRate * (target - probabilities[k]);
     }
 }
 
@@ -345,9 +414,17 @@ WordFeatures BuildFeatures(const std::string& w) {
         }
     }
 
+    features.prefix = (Prefix)kNotFound;
+    for (int i = 0; i < kNbPrefixes; ++i) {
+        if (starts_with(w, prefixes_str[i])) {
+            features.prefix = (Prefix) i;
+            break;
+        }
+    }
+
     if (std::all_of(w.begin(), w.end(), ::isupper))
         features.caps = ALL_CAPS;
-    else if (std::any_of(w.begin(), w.end(), ::isupper))
+    else if (isupper(w[0]))
         features.caps = FIRST_LETTER_CAPS;
 
     std::transform(features.as_string.begin(), features.as_string.end(), features.as_string.begin(),
@@ -406,7 +483,7 @@ Document BuildDocument(char* filename) {
 }
 
 int main(int argc, char** argv) {
-    if (argc != 2) {
+    if (argc < 2 || argc > 3) {
         std::cerr << "Usage: ./" << argv[0] << " <training set>\n";
         return 1;
     }
@@ -438,22 +515,55 @@ int main(int argc, char** argv) {
         std::cout << nll << "\n" << nb_correct << " / " << nb_tokens << "\n=======\n";
     }
 
-    TaggedWord prev = std::make_pair(kNotFound, PONCT);
-    while (std::cin) {
-        std::string w;
-        std::cin >> w;
+    std::cout << "==== TESTING ====\n";
+    if (argc == 2) {
+        TaggedWord prev = std::make_pair(kNotFound, PONCT);
+        while (std::cin) {
+            std::string w;
+            std::cin >> w;
 
-        std::cout << w << ":\n";
+            std::cout << w << ":\n";
 
+            double probas[kNbKinds];
+            WordFeatures wf = BuildFeatures(w);
+
+            if (wf.idx != kNotFound)
+                std::cout << "  idx: " << wf.idx << "\n";
+
+            Kind k = ComputeClass(wf, prev, probas);
+            prev = std::make_pair(wf.idx, k);
+            std::cout << "  POS: " << POSToText(k) << " (confidence: " << probas[k] *100 << " %)\n";
+        }
+    } else {
+        double nll = 0;
         double probas[kNbKinds];
-        WordFeatures wf = BuildFeatures(w);
+        int nb_correct = 0;
+        int nb_tokens = 0;
+        std::string w;
+        std::string pos_str;
+        std::ifstream test(argv[2]);
+        TaggedWord prev = std::make_pair(kNotFound, PONCT);
+        while (test) {
+            test >> w;
+            test >> pos_str;
+            const WordFeatures& wf = BuildFeatures(w);
+            Kind predicted = ComputeClass(wf, prev, probas);
+            if (predicted == TextToPOS(pos_str)) {
+                ++nb_correct;
+            } else {
+                std::cout << w << "(" << wf.idx << ") said " << POSToText(predicted) << " but " << pos_str << std::endl;
+            }
+            ++nb_tokens;
 
-        if (wf.idx != kNotFound)
-            std::cout << "  idx: " << wf.idx << "\n";
+            nll += ComputeNLL(probas);
 
-        Kind k = ComputeClass(wf, prev, probas);
-        prev = std::make_pair(wf.idx, k);
-        std::cout << "  POS: " << POSToText(k) << " (confidence: " << probas[k] *100 << " %)\n";
+            prev = std::make_pair(kNotFound, predicted);
+
+            if (nb_tokens % 10000 == 0) {
+                std::cout << nb_correct << " / " << nb_tokens << " (" << ((double) nb_correct *100 / nb_tokens) << "%)" << std::endl;
+            }
+        }
+        std::cout << nll << "\n" << nb_correct << " / " << nb_tokens << "\n=======\n";
     }
 
     return 0;
