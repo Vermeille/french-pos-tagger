@@ -9,7 +9,7 @@
 #include <algorithm>
 
 static const int kVocabSize = 100000;
-static const int kNbKinds = 30;
+static const int kNbKinds = 31;
 static const double kLearningRate = 0.01;
 static const unsigned int kNotFound = -1;
 
@@ -44,6 +44,7 @@ enum Kind {
     VPP,
     VPR,
     VS,
+    NBR,
 };
 
 Kind TextToPOS(const std::string& str) {
@@ -77,6 +78,7 @@ Kind TextToPOS(const std::string& str) {
     if (str =="VPP") return VPP;
     if (str =="VPR") return VPR;
     if (str =="VS") return VS;
+    if (str =="NBR") return NBR;
     return (Kind)kNotFound;
 };
 
@@ -111,6 +113,7 @@ std::string POSToText(Kind pos) {
     if (pos == VPP) return "VPP";
     if (pos == VPR) return "VPR";
     if (pos == VS) return "VS";
+    if (pos == NBR) return "NBR";
     return "ERROR";
 };
 
