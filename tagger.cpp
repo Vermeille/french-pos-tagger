@@ -10,7 +10,7 @@
 
 static const int kVocabSize = 100000;
 static const int kNbKinds = 30;
-static const double kLearningRate = 0.1;
+static const double kLearningRate = 0.01;
 static const unsigned int kNotFound = -1;
 
 enum Kind {
@@ -490,7 +490,7 @@ int main(int argc, char** argv) {
     Init();
     Document doc = BuildDocument(argv[1]);
 
-    for (int epoch = 0; epoch < 5; ++epoch) {
+    for (int epoch = 0; epoch < 150; ++epoch) {
         double nll = 0;
         double probas[kNbKinds];
         int nb_correct = 0;
