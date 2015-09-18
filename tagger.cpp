@@ -534,6 +534,50 @@ Document BuildDocument(char* filename) {
     return doc;
 }
 
+std::vector<TaggedWord> Viterbi(const std::vector<WordFeatures>& wfs) {
+    double seq_prob[wfs.size() + 1][kNbKinds];
+    Kind back_pointers[wfs.size() + 1][kNbKinds];
+
+    unsigned prev_idx = 0 /* dot */;
+    unsigned seq_iterator = 1;
+
+    // init probas
+    for (size_t i = 0; i < wfs.size() + 1; ++i) {
+        for (int j = 0; j < kNbKinds; ++j) {
+            seq_prob[i][j] = 0;
+        }
+    }
+    seq_prob[0][PONCT] = 1;
+
+    for (auto& wf : wfs) { // foreach word
+
+        // foreach combination of present and previous tag (order 1 MEMM)
+        for (int k2 = 0; k2 < kNbKinds; ++k2) {
+            double probas[kNbKinds];
+            ComputeClass(wf, std::make_pair(prev_idx, (Kind)k2), probas);
+            for (int k = 0; k < kNbKinds; ++k) {
+                double current = seq_prob[seq_iterator - 1][k2] * probas[k];
+                if (current > seq_prob[seq_iterator][k]) {
+                    seq_prob[seq_iterator][k] = current;
+                    back_pointers[seq_iterator][k] = (Kind)k2;
+                }
+            }
+        }
+
+        prev_idx = wf.idx;
+        ++seq_iterator;
+    }
+
+    std::vector<TaggedWord> tags(wfs.size());
+    tags.back() = std::make_pair(wfs.back().idx, PONCT);
+    for (ssize_t i = tags.size() - 2; i >= 0; --i) {
+        tags[i].first = wfs[i].idx;
+        tags[i].second = back_pointers[i + 2][tags[i + 1].second];
+    }
+
+    return tags;
+}
+
 int main(int argc, char** argv) {
     if (argc < 2 || argc > 3) {
         std::cerr << "Usage: ./" << argv[0] << " <training set>\n";
@@ -569,22 +613,35 @@ int main(int argc, char** argv) {
 
     std::cout << "==== TESTING ====\n";
     if (argc == 2) {
-        TaggedWord prev = std::make_pair(0, PONCT);
         while (std::cin) {
+            std::vector<WordFeatures> doc_features;
+
             std::string w;
-            std::cin >> w;
+            while (w != ".") {
+                std::cin >> w;
+                WordFeatures wf = BuildFeatures(w);
+                doc_features.push_back(wf);
+            }
 
-            std::cout << w << ":\n";
+            std::cout << "GREEDY:  ";
+            TaggedWord prev = std::make_pair(0, PONCT);
+            for (auto& wf : doc_features) {
 
-            double probas[kNbKinds];
-            WordFeatures wf = BuildFeatures(w);
+                double probas[kNbKinds];
 
-            if (wf.idx != kNotFound)
-                std::cout << "  idx: " << wf.idx << "\n";
+                Kind k = ComputeClass(wf, prev, probas);
+                std::cout << POSToText(k) << " ";
 
-            Kind k = ComputeClass(wf, prev, probas);
-            prev = std::make_pair(wf.idx, k);
-            std::cout << "  POS: " << POSToText(k) << " (confidence: " << probas[k] *100 << " %)\n";
+                prev = std::make_pair(wf.idx, k);
+                // std::cout << "  POS: " << POSToText(k) << " (confidence: " << probas[k] *100 << " %)\n";
+            }
+            std::cout << "\n";
+
+            std::cout << "VITERBI: ";
+            for (auto& tag : Viterbi(doc_features)) {
+                std::cout << POSToText(tag.second) << " ";
+            }
+            std::cout << "\n";
         }
     } else {
         double nll = 0;
