@@ -234,6 +234,7 @@ struct WordFeatures {
     Prefix prefix;
     unsigned int idx;
     Caps caps;
+    bool has_numbers;
 
     WordFeatures() : suffix((Suffix)kNotFound), idx(kNotFound), caps(NO_CAPS) {}
     WordFeatures(const std::string& str) : as_string(str), idx(kNotFound), caps(NO_CAPS) {}
@@ -359,12 +360,29 @@ void TransitionF_Backprop(const TaggedWord& w, const TaggedWord& prev, const dou
     }
 }
 
+/* NUMBERS */
+
+double numbers[kNbKinds][2];
+
+double HasNumbersF(Kind target, const WordFeatures& w) {
+        return numbers[target][w.has_numbers ? 0 : 1];
+}
+
+void HasNumbersF_Backprop(const TaggedWord& w, const WordFeatures& wf, const double* probabilities) {
+    int idx = (wf.has_numbers) ? 0 : 1;
+    for (int k = 0; k < kNbKinds; ++k) {
+        double target = k == w.second ? 1 : 0;
+        numbers[k][idx] += kLearningRate * (target - probabilities[k]);
+    }
+}
+
 double RunAllFeatures(Kind k, const WordFeatures& w, const TaggedWord& prev) {
     double sum = 0;
     sum += WordF(k, w);
     sum += SuffixF(k, w);
     sum += CapsF(k, w);
     sum += TransitionF(k, prev);
+    sum += HasNumbersF(k, w);
     return sum;
 }
 
@@ -391,6 +409,7 @@ void Backprop(const TaggedWord& tw, const WordFeatures& wf, const TaggedWord& pr
     SuffixF_Backprop(tw, probabilities);
     CapsF_Backprop(tw, wf, probabilities);
     TransitionF_Backprop(tw, prev, probabilities);
+    HasNumbersF_Backprop(tw, wf, probabilities);
 }
 
 double ComputeNLL(double* probas) {
@@ -427,6 +446,8 @@ WordFeatures BuildFeatures(const std::string& w) {
     else if (isupper(w[0]))
         features.caps = FIRST_LETTER_CAPS;
 
+    features.has_numbers = std::any_of(w.begin(), w.end(), ::isdigit);
+
     std::transform(features.as_string.begin(), features.as_string.end(), features.as_string.begin(),
             ::tolower);
     auto res = dict.find(features.as_string);
@@ -451,6 +472,10 @@ void Init() {
         word_weight[i].resize(kVocabSize);
         for (int j = 0; j < kVocabSize; ++j) {
             word_weight[i][j] = d(gen);
+        }
+
+        for (int j = 0; j < 2; ++j) {
+            numbers[i][j] = d(gen);
         }
     }
 }
