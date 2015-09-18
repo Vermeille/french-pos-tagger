@@ -363,6 +363,22 @@ void TransitionF_Backprop(const TaggedWord& w, const TaggedWord& prev, const dou
     }
 }
 
+/* FIRST WORD */
+
+double first_word[kNbKinds][2];
+
+double FirstWordF(Kind target, const TaggedWord& prev) {
+        return first_word[target][(prev.first == 0 /* dot */) ? 0 : 1];
+}
+
+void FirstWordF_Backprop(const TaggedWord& w, const TaggedWord& prev, const double* probabilities) {
+    int idx = (prev.first == 0 /* dot */) ? 0 : 1;
+    for (int k = 0; k < kNbKinds; ++k) {
+        double target = k == w.second ? 1 : 0;
+        first_word[k][idx] += kLearningRate * (target - probabilities[k]);
+    }
+}
+
 /* NUMBERS */
 
 double numbers[kNbKinds][2];
@@ -385,6 +401,7 @@ double RunAllFeatures(Kind k, const WordFeatures& w, const TaggedWord& prev) {
     sum += SuffixF(k, w);
     sum += CapsF(k, w);
     sum += TransitionF(k, prev);
+    sum += FirstWordF(k, prev);
     sum += HasNumbersF(k, w);
     return sum;
 }
@@ -412,6 +429,7 @@ void Backprop(const TaggedWord& tw, const WordFeatures& wf, const TaggedWord& pr
     SuffixF_Backprop(tw, probabilities);
     CapsF_Backprop(tw, wf, probabilities);
     TransitionF_Backprop(tw, prev, probabilities);
+    FirstWordF_Backprop(tw, prev, probabilities);
     HasNumbersF_Backprop(tw, wf, probabilities);
 }
 
@@ -480,6 +498,10 @@ void Init() {
         for (int j = 0; j < 2; ++j) {
             numbers[i][j] = d(gen);
         }
+
+        for (int j = 0; j < 2; ++j) {
+            first_word[i][j] = d(gen);
+        }
     }
 }
 
@@ -489,8 +511,10 @@ Document BuildDocument(char* filename) {
     std::ifstream input(filename);
     std::string w;
     std::string pos;
-    unsigned int max_word_id = 0;
+    unsigned int max_word_id = 1;
 
+    dict["."] = 0;
+    word_features[0] = BuildFeatures(".");
     while (input) {
         unsigned word_id = max_word_id;
         input >> w;
@@ -523,7 +547,7 @@ int main(int argc, char** argv) {
         double probas[kNbKinds];
         int nb_correct = 0;
         int nb_tokens = 0;
-        TaggedWord prev = std::make_pair(kNotFound, PONCT);
+        TaggedWord prev = std::make_pair(0, PONCT);
         for (size_t i = 0; i < doc.size(); ++i) {
             const WordFeatures& wf = word_features[doc[i].first];
             Kind predicted = ComputeClass(wf, prev, probas);
@@ -545,7 +569,7 @@ int main(int argc, char** argv) {
 
     std::cout << "==== TESTING ====\n";
     if (argc == 2) {
-        TaggedWord prev = std::make_pair(kNotFound, PONCT);
+        TaggedWord prev = std::make_pair(0, PONCT);
         while (std::cin) {
             std::string w;
             std::cin >> w;
@@ -570,7 +594,7 @@ int main(int argc, char** argv) {
         std::string w;
         std::string pos_str;
         std::ifstream test(argv[2]);
-        TaggedWord prev = std::make_pair(kNotFound, PONCT);
+        TaggedWord prev = std::make_pair(0, PONCT);
         while (test) {
             test >> w;
             test >> pos_str;
@@ -585,7 +609,7 @@ int main(int argc, char** argv) {
 
             nll += ComputeNLL(probas);
 
-            prev = std::make_pair(kNotFound, predicted);
+            prev = std::make_pair(wf.idx, predicted);
 
             if (nb_tokens % 10000 == 0) {
                 std::cout << nb_correct << " / " << nb_tokens << " (" << ((double) nb_correct *100 / nb_tokens) << "%)" << std::endl;
