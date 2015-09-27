@@ -476,7 +476,7 @@ WordFeatures BuildFeatures(const std::string& w) {
     return features;
 }
 
-void Init() {
+void RandInit() {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::normal_distribution<double> d(0, 1);
@@ -502,6 +502,85 @@ void Init() {
         for (int j = 0; j < 2; ++j) {
             first_word[i][j] = d(gen);
         }
+    }
+}
+
+bool Init() {
+    std::ifstream in("params.pos");
+
+    if (!in) {
+        RandInit();
+        return true;
+    }
+
+    int dict_size;
+    in >> dict_size;
+
+    std::string w;
+    for (int i = 0; i < dict_size; ++i) {
+        in >> w;
+        in >> dict[w];
+    }
+
+    for (int i = 0; i < kNbKinds; ++i) {
+        for (int j = 0; j < kNbSuffixes; ++j) {
+            in >> suffixes[i][j];
+        }
+
+        for (int j = 0; j < 3; ++j) {
+            in >> capitalization[i][j];
+        }
+
+        word_weight[i].resize(kVocabSize);
+        for (int j = 0; j < kVocabSize; ++j) {
+            in >> word_weight[i][j];
+        }
+
+        for (int j = 0; j < 2; ++j) {
+            in >> numbers[i][j];
+        }
+
+        for (int j = 0; j < 2; ++j) {
+            in >> first_word[i][j];
+        }
+    }
+    return false;
+}
+
+void Save() {
+    std::ofstream out("params.pos");
+
+    out << dict.size() << "\n";
+    for (auto& w : dict) {
+        out << w.first << " " << w.second << "\n";
+    }
+
+    for (int i = 0; i < kNbKinds; ++i) {
+        for (int j = 0; j < kNbSuffixes; ++j) {
+            out << suffixes[i][j] << " ";
+        }
+        out << "\n";
+
+        for (int j = 0; j < 3; ++j) {
+            out << capitalization[i][j] << " ";
+        }
+        out << "\n";
+
+        word_weight[i].resize(kVocabSize);
+        for (int j = 0; j < kVocabSize; ++j) {
+            out << word_weight[i][j] << " ";
+        }
+        out << "\n";
+
+        for (int j = 0; j < 2; ++j) {
+            out << numbers[i][j] << " ";
+        }
+        out << "\n";
+
+        for (int j = 0; j < 2; ++j) {
+            out << first_word[i][j] << " ";
+        }
+        out << "\n";
     }
 }
 
@@ -578,14 +657,8 @@ std::vector<TaggedWord> Viterbi(const std::vector<WordFeatures>& wfs) {
     return tags;
 }
 
-int main(int argc, char** argv) {
-    if (argc < 2 || argc > 3) {
-        std::cerr << "Usage: ./" << argv[0] << " <training set>\n";
-        return 1;
-    }
-    Init();
-    Document doc = BuildDocument(argv[1]);
-
+void Train(const Document& doc) {
+    std::cout << "===== TRAINING ======\n";
     for (int epoch = 0; epoch < 150; ++epoch) {
         double nll = 0;
         double probas[kNbKinds];
@@ -611,7 +684,21 @@ int main(int argc, char** argv) {
         std::cout << nll << "\n" << nb_correct << " / " << nb_tokens << "\n=======\n";
     }
 
-    std::cout << "==== TESTING ====\n";
+}
+
+int main(int argc, char** argv) {
+    if (argc < 2 || argc > 3) {
+        std::cerr << "Usage: ./" << argv[0] << " <training set>\n";
+        return 1;
+    }
+    bool need_training = Init();
+
+    Document doc = BuildDocument(argv[1]);
+    if (need_training) {
+        Train(doc);
+        Save();
+    }
+
     if (argc == 2) {
         while (std::cin) {
             std::vector<WordFeatures> doc_features;
@@ -623,21 +710,6 @@ int main(int argc, char** argv) {
                 doc_features.push_back(wf);
             }
 
-            std::cout << "GREEDY:  ";
-            TaggedWord prev = std::make_pair(0, PONCT);
-            for (auto& wf : doc_features) {
-
-                double probas[kNbKinds];
-
-                Kind k = ComputeClass(wf, prev, probas);
-                std::cout << POSToText(k) << " ";
-
-                prev = std::make_pair(wf.idx, k);
-                // std::cout << "  POS: " << POSToText(k) << " (confidence: " << probas[k] *100 << " %)\n";
-            }
-            std::cout << "\n";
-
-            std::cout << "VITERBI: ";
             for (auto& tag : Viterbi(doc_features)) {
                 std::cout << POSToText(tag.second) << " ";
             }
