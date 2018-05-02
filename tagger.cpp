@@ -399,6 +399,7 @@ double RunAllFeatures(Kind k, const WordFeatures& w, const TaggedWord& prev) {
     double sum = 0;
     sum += WordF(k, w);
     sum += SuffixF(k, w);
+    sum += PrefixF(k, w);
     sum += CapsF(k, w);
     sum += TransitionF(k, prev);
     sum += FirstWordF(k, prev);
@@ -426,6 +427,7 @@ Kind ComputeClass(const WordFeatures& w, const TaggedWord& prev, double* probabi
 void Backprop(const TaggedWord& tw, const WordFeatures& wf, const TaggedWord& prev,
         const double* probabilities) {
     WordF_Backprop(tw, probabilities);
+    PrefixF_Backprop(tw, probabilities);
     SuffixF_Backprop(tw, probabilities);
     CapsF_Backprop(tw, wf, probabilities);
     TransitionF_Backprop(tw, prev, probabilities);
@@ -629,7 +631,6 @@ std::vector<TaggedWord> Viterbi(const std::vector<WordFeatures>& wfs) {
     seq_prob[0][PONCT] = 1;
 
     for (auto& wf : wfs) { // foreach word
-
         // foreach combination of present and previous tag (order 1 MEMM)
         for (int k2 = 0; k2 < kNbKinds; ++k2) {
             double probas[kNbKinds];
